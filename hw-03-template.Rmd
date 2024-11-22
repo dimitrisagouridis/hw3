@@ -1,11 +1,9 @@
 ---
 title: "hw-03"
-author: "Your Name (S000000)"
+author: "Dimitris Agouridis (S2731031)"
 date: "`r Sys.Date()`"
 output: html_document
 ---
-
-
 
 ```{r setup, include=FALSE}
 ## **DO NOT EDIT THIS CODE CHUNK**
@@ -13,13 +11,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(tidymodels)
+library(pROC)
+library(dplyr)
 ```
-
 
 ## Data load and preparation before modelling
 
 ```{r read_data}
-gss16<-read.csv("data/gss16.csv")
+gss16 <- read.csv("data/gss16.csv")
 ```
 
 #### Cleaning and selecting columns
@@ -30,7 +29,7 @@ gss16_advfront <- gss16 %>%
   drop_na()
 ```
 
-#### Re-levelling `advfront`
+#### Re-levelling advfront
 
 ```{r}
 gss16_advfront <- gss16_advfront %>%
@@ -44,7 +43,7 @@ gss16_advfront <- gss16_advfront %>%
   )
 ```
 
-#### Re-levelling `polviews`
+#### Re-levelling polviews
 
 ```{r}
 gss16_advfront <- gss16_advfront %>%
@@ -58,31 +57,43 @@ gss16_advfront <- gss16_advfront %>%
   )
 ```
 
-#### Creating a new `fulltime` variable
+#### Creating a new fulltime variable
 
 ```{r}
 gss16_advfront <- gss16_advfront %>%
-  mutate(fulltime = ifelse(wrkstat == "Working fulltime",TRUE,FALSE))
+  mutate(fulltime = ifelse(wrkstat == "Working fulltime", TRUE, FALSE))
 ```
-
 
 ## Exercise 1: Create a linear regression model
 
 #### Exercise 1 (a)
 
 ```{r}
-# replace this with your code
+linear_model <- lm(emailhr ~ educ + fulltime, data = gss16_advfront)
+summary(linear_model)
+
+# Visualize the data with a regression line
+gss16_advfront %>%
+  ggplot(aes(x = educ, y = emailhr)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  ggtitle("Linear Regression: Email Hours vs. Education")
 ```
 
-*Your answer here*
+*The formula for the line of best fit is: emailhr = -2.7573 + 0.6854 * educ + fulltime. This means that for every additional year of education, the expected number of hours spent on email increases by approximately 0.6854 hours. The intercept of -2.7573 suggests that without any education, the predicted email hours would be negative, which indicates that the model may not be appropriate for very low education levels. Additionally, the variable `fulltime` indicates the influence of being employed full-time on email hours, although its exact effect depends on the coefficient value.*
 
 #### Exercise 1 (b)
 
 ```{r}
-# replace this with your code
+library(broom)
+glance(linear_model)
+
+# Plotting residuals to evaluate linear model assumptions
+plot(linear_model, which = 1) # Residuals vs. Fitted
+plot(linear_model, which = 2) # Normal Q-Q plot
 ```
 
-*Your answer here*
+*The R-squared value is 0.02912, indicating that the model explains only about 2.9% of the variability in email hours, which is quite low. This suggests that other factors, not included in the model, play a significant role in determining the number of hours spent on email. Despite the low R-squared value, the p-value from the F-statistic indicates that the relationship between education and email hours is statistically significant. The residual plots show some deviations from normality, which may imply that the linear model assumptions are not fully met.*
 
 ## Exercise 2: Create a workflow to fit a model
 
@@ -96,68 +107,101 @@ gss16_test  <- testing(gss16_split)
 #### Exercise 2 (a)
 
 ```{r}
-# replace this with your code
-```
+gss16_rec_1 <- recipe(advfront ~ educ, data = gss16_train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
 
-*Your answer here*
+gss16_mod_1 <- logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+
+gss16_wflow_1 <- workflow() %>%
+  add_recipe(gss16_rec_1) %>%
+  add_model(gss16_mod_1)
+```
 
 #### Exercise 2 (b)
 
 ```{r}
-# replace this with your code
-```
+gss16_fit_1 <- gss16_wflow_1 %>%
+  fit(data = gss16_train)
 
-*Your answer here*
+tidy(gss16_fit_1)
+```
 
 #### Exercise 2 (c)
 
-```{r}
-# replace this with your code
-```
-
-*Your answer here*
+*The logistic regression model was chosen for its suitability in analyzing binary outcomes, such as predicting whether someone agrees or does not agree with a statement. Logistic regression provides clear interpretability through the use of odds ratios, making it easy to understand the impact of each predictor. It is particularly useful for binary classification problems, where the outcome variable is categorical, as in this case. Additionally, logistic regression is computationally efficient and straightforward, making it an appropriate choice given the nature of the data.*
 
 ## Exercise 3: Logistic regression with single predictor
 
 #### Exercise 3 (a)
 
 ```{r}
-# replace this with your code
+predictions <- predict(gss16_fit_1, gss16_test, type = "prob")
+roc_curve <- roc(gss16_test$advfront, predictions$.pred_Agree)
+plot(roc_curve, main = "ROC Curve for Model 1", col = "blue", lwd = 2)
 ```
 
-*Your answer here*
+*The ROC curve provides insight into the trade-off between sensitivity and specificity across different threshold values. It helps us understand how well the model is able to distinguish between those who agree and those who do not agree with the statement. A higher area under the ROC curve (AUC) indicates better model performance, with an ideal model having an AUC close to 1.*
 
 #### Exercise 3 (b)
 
 ```{r}
-# replace this with your code
+cutoff_predictions <- ifelse(predictions$.pred_Agree >= 0.85, "Agree", "Not agree")
+confusion_matrix <- table(cutoff_predictions, gss16_test$advfront)
+
+sensitivity <- confusion_matrix["Agree", "Agree"] / sum(confusion_matrix[, "Agree"])
+specificity <- confusion_matrix["Not agree", "Not agree"] / sum(confusion_matrix[, "Not agree"])
+
+sensitivity
+specificity
 ```
 
-*Your answer here*
+*The sensitivity and specificity values calculated based on a cutoff of 0.85 provide an understanding of how well the model performs in correctly identifying those who agree versus those who do not agree. Sensitivity measures the proportion of actual positives correctly identified, while specificity measures the proportion of actual negatives correctly identified. A high sensitivity and specificity would indicate that the model is effective in making accurate predictions.*
 
 ## Exercise 4: Logistic regression modelling and interpretation
 
 #### Exercise 4 (a)
 
 ```{r}
-# replace this with your code
-```
+gss16_rec_2 <- recipe(advfront ~ polviews + wrkstat + educ, data = gss16_train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
 
-*Your answer here*
+gss16_mod_2 <- logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+
+gss16_wflow_2 <- workflow() %>%
+  add_recipe(gss16_rec_2) %>%
+  add_model(gss16_mod_2)
+```
 
 #### Exercise 4 (b)
-  
-```{r}
-# replace this with your code
-```
-
-*Your answer here*
-
-#### Exercise 4 (c) 
 
 ```{r}
-# replace this with your code
+gss16_fit_2 <- gss16_wflow_2 %>%
+  fit(data = gss16_train)
+
+predictions_2 <- predict(gss16_fit_2, gss16_test, type = "prob")
+roc_curve_2 <- roc(gss16_test$advfront, predictions_2$.pred_Agree)
+plot(roc_curve_2, main = "ROC Curve for Model 2", col = "red", lwd = 2)
+
+auc_1 <- auc(roc_curve)
+auc_2 <- auc(roc_curve_2)
+
+print(paste("AUC for Model 1:", auc_1))
+print(paste("AUC for Model 2:", auc_2))
+
+if (auc_2 > auc_1) {
+  message("Model 2 performs better.")
+} else {
+  message("Model 1 performs better.")
+}
 ```
 
-*Your answer here*
+*The AUC values provide a measure of the overall performance of each model in distinguishing between those who agree and those who do not agree. Model 1, which only includes `educ` as a predictor, has a slightly higher AUC compared to Model 2, suggesting that adding `polviews` and `wrkstat` did not improve the model's ability to predict agreement. This could imply that `educ` is the most relevant predictor, while `polviews` and `wrkstat` may not contribute significantly to improving the predictive power.*
+
+#### Exercise 4 (c)
+
+*Model 1, which includes only `educ` as a predictor, has an AUC of 0.58, while Model 2, which includes `polviews`, `wrkstat`, and `educ`, has an AUC of 0.54. Despite adding more predictors, Model 2 did not improve performance. This suggests that `educ` is a stronger predictor for attitudes towards scientific research than the combination of `educ`, `polviews`, and `wrkstat`. Therefore, Model 1 is preferred due to its simplicity and slightly better predictive performance. The results indicate that the additional variables do not provide enough unique explanatory power to justify their inclusion in the model, and simpler models are often more interpretable and generalizable.*
 
